@@ -24,6 +24,8 @@ export interface Env {
   ADMIN_EMAIL?: string
   ADMIN_USERNAME?: string
   ADMIN_TOTP_SECRET?: string
+  /** Local development only; ignored for non-loopback requests. */
+  LOCAL_ADMIN_LOGIN?: string
   RESEND_API_KEY?: string
   RESEND_FROM?: string
   /** Shared Feishu alert bot, the same app used for SMS restock alerts. */

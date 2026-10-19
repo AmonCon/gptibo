@@ -13,6 +13,12 @@ export function configured(env: Env) {
   try { return Boolean(adminLoginEmail(env) && env.ADMIN_USERNAME && validTotpSecret(env.ADMIN_TOTP_SECRET)) } catch { return false }
 }
 const mailReady = (env: Env) => Boolean(env.RESEND_API_KEY && env.RESEND_FROM)
+/** Local-only shortcut so a developer can open the admin UI without mail delivery. */
+export function localLoginEnabled(request: Request, env: Env) {
+  if (env.LOCAL_ADMIN_LOGIN !== 'true') return false
+  const url = new URL(request.url)
+  return url.protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(url.hostname)
+}
 const credentialVersion = (env: Env) => hash('admin-email-totp-v1:' + adminLoginEmail(env) + ':' + env.ADMIN_USERNAME + ':' + env.ADMIN_TOTP_SECRET)
 const codeHash = (env: Env, version: string, id: string, code: string) => hash('admin-email:' + env.ADMIN_TOTP_SECRET + ':' + version + ':' + id + ':' + code)
 const invalidLogin = () => new ApiError('用户名、邮箱验证码或 2FA 验证码不正确，或验证码已失效。', 401)
@@ -29,9 +35,29 @@ async function reserveAttempt(env: Env, key: string, now: number, maximum: numbe
 }
 export async function authRoute(request: Request, env: Env, path: string) {
   if (path === '/api/admin/session' && request.method === 'GET') {
-    if (!configured(env)) return json({ configured: false, authenticated: false, mailReady: mailReady(env) })
-    try { await requireAdmin(request, env); return json({ configured: true, authenticated: true, mailReady: mailReady(env), username: env.ADMIN_USERNAME }) }
-    catch (e) { if (e instanceof ApiError && e.status === 401) return json({ configured: true, authenticated: false, mailReady: mailReady(env) }); throw e }
+    const local = localLoginEnabled(request, env)
+    if (!configured(env)) return json({ configured: false, authenticated: false, mailReady: mailReady(env), localLogin: local })
+    try {
+      await requireAdmin(request, env)
+      return json({ configured: true, authenticated: true, mailReady: mailReady(env), username: env.ADMIN_USERNAME, localLogin: local })
+    }
+    catch (e) { if (e instanceof ApiError && e.status === 401) return json({ configured: true, authenticated: false, mailReady: mailReady(env), localLogin: local }); throw e }
+  }
+  if (path === '/api/admin/login/local' && request.method === 'POST') {
+    const data = await body(request)
+    if (!localLoginEnabled(request, env)) throw new ApiError('本地登录未启用。', 404)
+    if (!configured(env)) throw new ApiError('管理员验证器尚未配置。', 503)
+    if (data.username !== env.ADMIN_USERNAME || typeof data.code !== 'string' || !/^\d{6}$/.test(data.code)) throw invalidLogin()
+    const now = Date.now()
+    await reserveAttempt(env, await hash('local-login:' + (request.headers.get('CF-Connecting-IP') ?? 'local')), now, 8)
+    const step = await verifyTotp(env.ADMIN_TOTP_SECRET!, data.code, now)
+    if (step === null) throw invalidLogin()
+    const token = randomToken(), tokenHash = await hash(token)
+    await env.INTEREST_DB.batch([
+      env.INTEREST_DB.prepare('DELETE FROM admin_sessions WHERE expires_at<=?').bind(now),
+      env.INTEREST_DB.prepare("INSERT INTO admin_sessions(token_hash,credential_version,expires_at) VALUES (?,?,?)").bind(tokenHash, await credentialVersion(env), now + LOGIN_SESSION_SECONDS * 1000),
+    ])
+    return json({ ok: true }, 200, { 'Set-Cookie': cookie(request, 'admin', token, LOGIN_SESSION_SECONDS) })
   }
   if (path === '/api/admin/login/email-code' && request.method === 'POST') {
     const data = await body(request), db = env.INTEREST_DB

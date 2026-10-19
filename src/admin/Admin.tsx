@@ -46,7 +46,7 @@ import './admin.css'
 
 const money = (cents: number) => new Intl.NumberFormat('zh-CN', { style: 'currency', currency: 'CNY' }).format(cents / 100)
 const time = (value: number | string) => new Date(typeof value === 'string' && !value.includes('T') ? value.replace(' ', 'T') + 'Z' : value).toLocaleString('zh-CN', { hour12: false })
-const productName = (plan: string) => emailProduct(plan) ? productNameForId(emailProduct(plan)!.productId) : productNameForPlan(plan)
+const productName = (plan: string, order?: ServerOrder) => order?.fulfillmentMode ? (order.productName ?? order.planName ?? plan) : emailProduct(plan) ? productNameForId(emailProduct(plan)!.productId) : productNameForPlan(plan)
 const views = [
   { id: 'security', label: '安全审计', icon: ShieldCheck },
   { id: 'overview', label: '运营概览', icon: LayoutDashboard }, { id: 'orders', label: '订单管理', icon: ClipboardList },
@@ -58,7 +58,7 @@ const views = [
   { id: 'plans', label: '商品与套餐', icon: Package }, { id: 'products', label: '商品管理', icon: Package }, { id: 'interest', label: '上线提醒', icon: Mail },
   { id: 'contacts', label: '联系方式', icon: MessageCircle }, { id: 'integrations', label: '服务接入', icon: Plug }, { id: 'partners', label: '代理管理', icon: Users }, { id: 'visitors', label: '访客统计', icon: ChartNoAxesCombined },
 ]
-type Session = { authenticated: boolean; configured: boolean; mailReady: boolean; username?: string }
+type Session = { authenticated: boolean; configured: boolean; mailReady: boolean; username?: string; localLogin?: boolean }
 type Overview = { stats: { total: number; pending: number; active: number; completed: number; refund_amount: number; paid_amount: number }; interest: { total: number }; recent: ServerOrder[] }
 type Detail = { order: ServerOrder & { platformStatus: PlatformOrderStatus | null; rechargeCredential?: RechargeCredential }; events: { id: string; actor: string; action: string; note: string; to_status: string; created_at: number }[] }
 function SettlementBadge({ status }: { status?: 'pending' | 'paid' | null }) {
@@ -67,7 +67,7 @@ function SettlementBadge({ status }: { status?: 'pending' | 'paid' | null }) {
 }
 function OrderTable({ orders, onSelect }: { orders: ServerOrder[]; onSelect: (id: string) => void }) {
   if (!orders.length) return <div className="admin-empty"><ClipboardList size={28} /><h3>还没有订单</h3><p>前台创建的订单会显示在这里。</p><a href="/" target="_blank" rel="noreferrer">打开商店 <ArrowUpRight size={14} /></a></div>
-  return <div className="admin-table-scroll"><table className="admin-table"><thead><tr><th>订单 / 创建时间</th><th>商品套餐</th><th>订单金额</th><th>状态</th><th>类型</th><th><span className="sr-only">操作</span></th></tr></thead><tbody>{orders.map(o => <tr key={o.id}><td><button className="admin-order-id" onClick={() => onSelect(o.id)} title={o.id}>{o.id}</button><small>{time(o.createdAt)}</small></td><td>{o.isTest ? '支付联调测试' : productName(o.plan)}<small>{o.planName}{o.partnerName && ` · ${o.partnerName}`}</small></td><td className="admin-numeric">{money(o.paymentSummary?.amountCents ?? Math.round(o.price * 100))}<small>{o.paymentStatus === 'simulated' ? '无实际收款' : o.paymentStatus === 'paid' ? '已到账' : '未付款'}</small></td><td><span className={`status-pill status-${o.status}`}><span />{orderLabel(o)}</span><SettlementBadge status={o.settlementStatus} /></td><td><span className="admin-mode">{o.isTest ? '实付测试' : o.mode === 'demo' ? '历史测试记录' : '正式'}</span></td><td><Button variant="ghost" onClick={() => onSelect(o.id)}>查看 <ArrowUpRight size={14} /></Button></td></tr>)}</tbody></table></div>
+  return <div className="admin-table-scroll"><table className="admin-table"><thead><tr><th>订单 / 创建时间</th><th>商品套餐</th><th>订单金额</th><th>状态</th><th>类型</th><th><span className="sr-only">操作</span></th></tr></thead><tbody>{orders.map(o => <tr key={o.id}><td><button className="admin-order-id" onClick={() => onSelect(o.id)} title={o.id}>{o.id}</button><small>{time(o.createdAt)}</small></td><td>{o.isTest ? '支付联调测试' : productName(o.plan, o)}<small>{o.planName}{o.partnerName && ` · ${o.partnerName}`}</small></td><td className="admin-numeric">{money(o.paymentSummary?.amountCents ?? Math.round(o.price * 100))}<small>{o.paymentStatus === 'simulated' ? '无实际收款' : o.paymentStatus === 'paid' ? '已到账' : '未付款'}</small></td><td><span className={`status-pill status-${o.status}`}><span />{orderLabel(o)}</span><SettlementBadge status={o.settlementStatus} /></td><td><span className="admin-mode">{o.isTest ? '实付测试' : o.mode === 'demo' ? '历史测试记录' : '正式'}</span></td><td><Button variant="ghost" onClick={() => onSelect(o.id)}>查看 <ArrowUpRight size={14} /></Button></td></tr>)}</tbody></table></div>
 }
 function Pagination({ page, total, onChange }: { page: number; total: number; onChange: (p: number) => void }) {
   return <div className="admin-pagination"><span>共 {total} 条 · 第 {page} / {Math.max(1, Math.ceil(total / 20))} 页</span><div><Button variant="outline" disabled={page <= 1} onClick={() => onChange(page - 1)}>上一页</Button><Button variant="outline" disabled={page * 20 >= total} onClick={() => onChange(page + 1)}>下一页</Button></div></div>
@@ -104,7 +104,7 @@ function OrderDetail({ id, onClose, onUpdated }: { id: string; onClose: () => vo
       <Feedback error={error} loading={loading} data={data} shape="detail" />
       {data && <>
         {Boolean(data.order.paymentSummary?.feeCents) && <p className="admin-subtle">商品金额 {money(Math.round(data.order.price * 100))} + 平台手续费 {money(data.order.paymentSummary!.feeCents)}（{data.order.paymentSummary!.feeBps / 100}%）</p>}
-        <div className="admin-detail-summary"><div><strong>{productName(data.order.plan)} · {data.order.planName}</strong><span>{time(data.order.createdAt)}</span></div><strong>{money(data.order.paymentSummary?.amountCents ?? Math.round(data.order.price * 100))}</strong></div>
+        <div className="admin-detail-summary"><div><strong>{productName(data.order.plan, data.order)}{data.order.fulfillmentMode ? ` · ${data.order.planName}` : ''}</strong><span>{time(data.order.createdAt)}</span></div><strong>{money(data.order.paymentSummary?.amountCents ?? Math.round(data.order.price * 100))}</strong></div>
         <div className="admin-detail-flags"><span className={`status-pill status-${data.order.status}`}>{orderLabel(data.order)}</span><span className="admin-mode">{data.order.mode === 'demo' ? '历史测试记录 · 不计入收入' : '正式订单'}</span><SettlementBadge status={data.order.settlementStatus} /></div>
           <div className="admin-order-source" aria-label="订单来源"><div><span>代理名称</span><strong>{data.order.partnerSource?.name ?? '平台订单'}</strong></div>{data.order.partnerSource ? <><div><span>专属链接标识</span><strong>{data.order.partnerSource.slug}</strong></div><div><span>代理邮箱</span><strong><a href={`mailto:${data.order.partnerSource.email}`}>{data.order.partnerSource.email}</a></strong></div>{data.order.partnerSource.wechat && <div><span>微信</span><strong>{data.order.partnerSource.wechat}</strong></div>}{data.order.partnerSource.qq && <div><span>QQ</span><strong>{data.order.partnerSource.qq}</strong></div>}</> : <div><span>来源类型</span><strong>平台直营</strong></div>}</div>
         <p className="admin-subtle">客户下单邮箱：{data.order.customerEmail || '旧订单未留邮箱'} · 本站已记账退款 {money(data.order.refundedCents ?? 0)}{data.order.refundHold && ' · 售后处理中，请前往退款与售后处理'}</p>
@@ -226,10 +226,23 @@ export default function Admin() {
     setBusy(true); setSessionError('')
     try { await api('/api/admin/login', { username: username.trim(), code, emailCode, challenge: challenge.id, ...loginHuman.consume() }); setCode(''); setEmailCode(''); setChallenge(undefined); setMailNotice(''); await checkSession() } catch (e) { setSessionError(errorMessage(e)) } finally { setBusy(false) }
   }
+  async function localLogin() {
+    if (busy || !username.trim() || code.length !== 6) return
+    setBusy(true); setSessionError('')
+    try { await api('/api/admin/login/local', { username: username.trim(), code }); setCode(''); await checkSession() } catch (e) { setSessionError(errorMessage(e)) } finally { setBusy(false) }
+  }
   async function logout() { setBusy(true); try { await api('/api/admin/logout', {}); clearSession(); setUsername(''); setCode(''); setEmailCode(''); setChallenge(undefined); setMailNotice(''); setDetail(undefined) } catch (e) { setSessionError(errorMessage(e)) } finally { setBusy(false) } }
   if (accessRequired) return <main className="admin-login"><div className="admin-login-box"><div className="admin-brand"><BrandMark /><strong>GPTibo</strong><span>管理后台</span></div><ShieldCheck className="admin-login-icon" size={30} /><h1>重新进行安全验证</h1><p>点击下方按钮，先退出旧的 Cloudflare 安全验证会话，再使用授权管理员邮箱重新验证。</p><Button onClick={() => void reauthenticate()} disabled={restartingAccess}>{restartingAccess ? '正在重置安全验证…' : '前往安全验证'}</Button>{accessError && <><p role="alert">{accessError}</p><a href="/cdn-cgi/access/logout">手动退出安全验证</a></>}<small>完成验证前，已暂停后台请求。</small></div></main>
   if (!session && !sessionError) return <WorkspaceBoot />
-  if (!session?.authenticated) return <main className="admin-login"><a className="admin-back" href="/"><ArrowLeft size={15} />返回商店</a><div className="admin-login-box"><div className="admin-brand"><BrandMark /><strong>GPTibo</strong><span>管理后台</span></div><ShieldCheck className="admin-login-icon" size={30} /><h1>登录工作台</h1><p>管理商品、查看订单，跟进每一次服务。</p><Feedback error={sessionError} />{!session ? sessionError ? <Button variant="outline" onClick={() => void checkSession()}>重新连接</Button> : <Feedback loading /> : !session.configured ? <div className="admin-setup"><h2>等待管理员初始化</h2><p>后台已部署，尚未设置登录身份。请在项目终端运行 <code>npm run admin:setup</code> 配置管理员账号与验证器。</p><Button variant="outline" onClick={() => void checkSession()}>已配置，重新检查</Button></div> : <form onSubmit={e => { e.preventDefault(); void login() }}>
+  if (!session?.authenticated) return <main className="admin-login"><a className="admin-back" href="/"><ArrowLeft size={15} />返回商店</a><div className="admin-login-box"><div className="admin-brand"><BrandMark /><strong>GPTibo</strong><span>管理后台</span></div><ShieldCheck className="admin-login-icon" size={30} /><h1>登录工作台</h1><p>管理商品、查看订单，跟进每一次服务。</p><Feedback error={sessionError} />{!session ? sessionError ? <Button variant="outline" onClick={() => void checkSession()}>重新连接</Button> : <Feedback loading /> : !session.configured ? <div className="admin-setup"><h2>等待管理员初始化</h2><p>后台已部署，尚未设置登录身份。请在项目终端运行 <code>npm run admin:setup</code> 配置管理员账号与验证器。</p><Button variant="outline" onClick={() => void checkSession()}>已配置，重新检查</Button></div> : session.localLogin ? <form onSubmit={e => { e.preventDefault(); void localLogin() }}>
+      <p role="status" className="admin-code-help">本地开发登录：验证器验证码即可，仅对 127.0.0.1 生效。</p>
+      <label htmlFor="admin-username">用户名</label>
+      <Input id="admin-username" autoComplete="username" placeholder="管理员用户名" value={username} onChange={e => setUsername(e.target.value)} disabled={busy} required maxLength={80} />
+      <label htmlFor="admin-code">2FA 验证码</label>
+      <Input id="admin-code" inputMode="numeric" autoComplete="off" placeholder="6 位验证器验证码" value={code} onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} disabled={busy} required pattern="[0-9]{6}" minLength={6} maxLength={6} aria-describedby="admin-code-help" />
+      <p id="admin-code-help" className="admin-code-help">打开已绑定的验证器，输入当前验证码。</p>
+      <Button type="submit" disabled={busy || !username.trim() || code.length !== 6}>{busy ? '正在登录…' : '登录后台'}</Button>
+    </form> : <form onSubmit={e => { e.preventDefault(); void login() }}>
       <label htmlFor="admin-username">用户名</label>
       <Input id="admin-username" autoComplete="username" placeholder="请输入管理员用户名" value={username} onChange={e => { setUsername(e.target.value); setChallenge(undefined); setEmailCode(''); setMailNotice('') }} disabled={busy || sending} required maxLength={80} />
       {sendHuman.widget}

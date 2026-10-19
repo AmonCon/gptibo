@@ -45,7 +45,8 @@ const customerOrder = async (env: Env, o: Order, contacts = new Map<string, Prom
   const [support, fulfillment] = await Promise.all([settings, rechargeSummary(env, o)])
   if (fulfillment) Object.assign(fulfillment, { syncError })
   const dynamic = o.fulfillment ? await deliverySummary(env, o) : null
-  return { ...publicOrder(o), fulfillmentMode: o.fulfillment ?? null, xgift: await xgiftSummary(env, o), manualFulfillment: isLegacyManualOrder(o, Boolean(fulfillment)) || Boolean(emailProduct(o.plan)) || Boolean(o.fulfillment), delivery: await emailDeliverySummary(env, o), dynamicDelivery: dynamic, supportContacts: support.contacts, refundHold: !!o.refund_hold || !!fulfillment?.financialHold, fulfillment }
+  const dynamicProduct = o.product_slug ? await env.INTEREST_DB.prepare('SELECT name FROM products WHERE slug=?').bind(o.product_slug).first<{ name: string }>() : null
+  return { ...publicOrder(o), fulfillmentMode: o.fulfillment ?? null, productName: dynamicProduct?.name ?? null, xgift: await xgiftSummary(env, o), manualFulfillment: isLegacyManualOrder(o, Boolean(fulfillment)) || Boolean(emailProduct(o.plan)) || Boolean(o.fulfillment), delivery: await emailDeliverySummary(env, o), dynamicDelivery: dynamic, supportContacts: support.contacts, refundHold: !!o.refund_hold || !!fulfillment?.financialHold, fulfillment }
 }
 async function orderPartnerSource(env: Env, order: Order): Promise<OrderPartnerSource | null> {
   if (!order.partner_id) return null
