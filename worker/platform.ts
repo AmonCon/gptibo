@@ -46,6 +46,8 @@ export interface Env {
   ACCOUNT_SUPPLIER_CHECKOUT_ENABLED?: string
   PAYMENT_PROVIDER?: string
   PAYMENT_CHECKOUT_ENABLED?: string
+  /** Storefront purchase entry stays on WeChat/contact while online checkout is being prepared. */
+  PURCHASE_CONTACT_ONLY?: string
   PAYMENT_TEST_ENABLED?: string
   /** Opens nonfinancial purchase testing. Disable before enabling real storefront collection. */
   ORDER_TESTING_ENABLED?: string

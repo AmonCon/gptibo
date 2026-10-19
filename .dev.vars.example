@@ -16,6 +16,10 @@ FEISHU_PAYOUT_RECIPIENT= # Configure locally; never commit a real value.
 # Nonfinancial purchase flow testing; disable before real fulfillment.
 ORDER_TESTING_ENABLED="true"
 
+# Keep the storefront browsable while purchases go through WeChat/contact.
+# Set to "false" only after online payment is configured and verified.
+PURCHASE_CONTACT_ONLY="true"
+
 # Payment adapter. This switch alone cannot turn test orders into real payments.
 PAYMENT_PROVIDER="alipay"
 PAYMENT_CHECKOUT_ENABLED="false"

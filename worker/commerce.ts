@@ -15,7 +15,7 @@ import { adminPartnerRoutes, partnerCatalog, partnerRoutes, resolvePartner } fro
 import { paymentAction, reconcilePayments } from './payments/service.ts'
 import { alipayConfigured } from './payments/providers.ts'
 import { paymentTesting } from './payments/testing.ts'
-import { supportContactsRoute, supportContactsSettings } from './support-contacts.ts'
+import { supportContactsRoute, supportContactsSettings, supportQrImageRoute, supportQrRoute, supportQrSettings } from './support-contacts.ts'
 import { checkoutEnabled as supplierCheckoutEnabled, configured as supplierConfigured, productMap, RechargeError } from './recharge/client.ts'
 import { supplierSnapshot, snapshotStatement, syncRechargeOrder, rechargeAction, rechargeSummary, findRechargeOrder, reconcileRecharge, expireRechargeOrder, queryPlatformOrder, platformOrderStatus } from './recharge/service.ts'
 import type { SupportContactsSettings } from '../shared/support-contacts.ts'
@@ -85,35 +85,47 @@ export async function commerce(request: Request, env: Env): Promise<Response> {
       if (path.startsWith('/api/admin/accounting')) return await accountingRoutes(request, env, url)
       if (path === '/api/admin/visitors' && method === 'GET') return json(await adminVisitorSummary(env, url))
       if (path === '/api/admin/support-contacts') return await supportContactsRoute(request, env)
+      if (path === '/api/admin/support-qr') return await supportQrRoute(request, env)
       if (path.startsWith('/api/admin/payments/test')) return await paymentTesting(request, env, url)
       if (path.startsWith('/api/admin/refunds')) return await adminRefunds(request, env, url)
       if (path.startsWith('/api/admin/partners') || path.startsWith('/api/admin/partner-payouts')) return await adminPartnerRoutes(request, env, url)
       if (path === '/api/admin/products' || path.startsWith('/api/admin/products/') || path === '/api/admin/product-plans' || path.startsWith('/api/admin/product-plans/')) return await productAdmin(request, env, url)
       return await admin(request, env, url)
     }
+    if (path === '/api/support-qr' && method === 'GET') {
+      const image = await supportQrImageRoute(request, env, url)
+      if (image) return image
+    }
     if (path === '/api/catalog' && method === 'GET') {
       const started = performance.now()
       const partner = await resolvePartner(env, url.searchParams.get('partner'))
       const live = supplierCheckoutEnabled(env)
       const testing = env.ORDER_TESTING_ENABLED === 'true'
+      const contactOnly = env.PURCHASE_CONTACT_ONLY === 'true'
       const email = emailCheckoutEnabled(env), gmail = gmailCheckoutEnabled(env), delivery_supplier = delivery_supplierCheckoutEnabled(env)
       const mapped = live ? productMap(env) : {}
-      const [catalog, support, announcement, products] = await Promise.all([
+      const [catalog, support, announcement, products, supportQr] = await Promise.all([
         partner ? partnerCatalog(env, partner) : plans(env).then(plans => ({ plans })),
         supportContactsSettings(env, partner?.id),
         partner ? publicAnnouncement(env, partner.id) : null,
         listProducts(env, true),
+        supportQrSettings(env, partner?.id ?? 'platform', partner?.slug ?? ''),
       ])
       const dynamicCheckout = testing || (env.PAYMENT_CHECKOUT_ENABLED === 'true' && alipayConfigured(env))
       const liveProductIds = new Set(products.map(item => item.id))
       const hasDynamicPlans = (catalog.plans as Plan[]).some(plan => Boolean((plan as Plan & { fulfillment?: string | null }).fulfillment) && plan.enabled && liveProductIds.has(plan.product_id))
+      const onlineCheckout = testing || live || email || xgiftCheckoutEnabled(env) || (hasDynamicPlans && dynamicCheckout)
+      const contactPurchase = contactOnly && Boolean(support.contacts.wechat || support.contacts.qq || support.contacts.email || supportQr.url)
       // Storefront prices are configured retail prices, independent of supplier latency.
-      const offers = (catalog.plans as Plan[]).map(plan => ({ ...plan, enabled: plan.enabled && (
-        (plan as Plan & { fulfillment?: string | null }).fulfillment
-          ? dynamicCheckout && liveProductIds.has(plan.product_id)
-          : isXGiftPlan(plan.id) ? xgiftCheckoutEnabled(env) : plan.id === 'gmail-account' ? gmail : isDeliverySupplierPlan(plan.id) ? delivery_supplier : emailProduct(plan.id) ? email : testing || (live && Boolean(mapped[plan.id]))
-      ) ? 1 : 0 }))
-      return json({ ...catalog, products, supportContacts: support.contacts, announcement, plans: offers, mode: live ? 'live' : 'demo', checkoutEnabled: testing || live || email || xgiftCheckoutEnabled(env) || (hasDynamicPlans && dynamicCheckout), testingEnabled: testing }, 200, { 'Server-Timing': `catalog;dur=${(performance.now() - started).toFixed(1)}` })
+      const offers = (catalog.plans as Plan[]).map(plan => {
+        const dynamic = Boolean((plan as Plan & { fulfillment?: string | null }).fulfillment)
+        return { ...plan, contactEnabled: plan.enabled && (!dynamic || liveProductIds.has(plan.product_id)) ? 1 : 0, enabled: !contactOnly && plan.enabled && (
+          dynamic
+            ? dynamicCheckout && liveProductIds.has(plan.product_id)
+            : isXGiftPlan(plan.id) ? xgiftCheckoutEnabled(env) : plan.id === 'gmail-account' ? gmail : isDeliverySupplierPlan(plan.id) ? delivery_supplier : emailProduct(plan.id) ? email : testing || (live && Boolean(mapped[plan.id]))
+        ) ? 1 : 0 }
+      })
+      return json({ ...catalog, products, supportContacts: support.contacts, supportQr: supportQr.url, contactPurchase, announcement, plans: offers, mode: live ? 'live' : 'demo', checkoutEnabled: !contactOnly && onlineCheckout, testingEnabled: testing }, 200, { 'Server-Timing': `catalog;dur=${(performance.now() - started).toFixed(1)}` })
     }
     if (path === '/api/orders/client' && method === 'POST') {
       await body(request)
@@ -151,6 +163,7 @@ export async function commerce(request: Request, env: Env): Promise<Response> {
       const data = await body(request)
       const rateKey = 'orders:' + await hash(request.headers.get('CF-Connecting-IP') ?? 'local')
       if (!(await env.INTEREST_LIMITER.limit({ key: rateKey })).success) throw new ApiError('创建订单较频繁，请稍后再试。', 429)
+      if (env.PURCHASE_CONTACT_ONLY === 'true') throw new ApiError('当前仅支持联系客服购买，请通过微信联系。', 409)
       if (typeof data.plan !== 'string' || typeof data.key !== 'string' || !/^[a-f0-9-]{36}$/.test(data.key)) throw new ApiError('商品或请求编号无效。')
       const email = emailValue(data.email)
       const partner = await resolvePartner(env, data.partner)

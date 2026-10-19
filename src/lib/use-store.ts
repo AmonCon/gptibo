@@ -26,6 +26,8 @@ export function useStore(page: string) {
   const [products, setProducts] = useState<DynamicProduct[]>([])
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethodOption[]>([])
   const [checkoutEnabled, setCheckoutEnabled] = useState(false)
+  const [contactPurchase, setContactPurchase] = useState(false)
+  const [wechatQr, setWechatQr] = useState('')
   const [testingEnabled, setTestingEnabled] = useState(false)
   const [partner, setPartner] = useState<{ name: string; slug: string; brandName?: string; logo?: string; pageTitle?: string; headline?: string; description?: string }>()
   const [catalogReady, setCatalogReady] = useState(false)
@@ -51,14 +53,14 @@ export function useStore(page: string) {
       const [list, offers] = await readStoreResources({
         initialize: initializeClient,
         orders: () => api<{ orders: ServerOrder[]; recoveryEmail: string | null }>('/api/orders'),
-        catalog: () => api<{ completedOrdersByProduct?: Record<string, number>; plans: CatalogPlan[]; products?: DynamicProduct[]; paymentMethods?: PaymentMethodOption[]; productOrder?: StorefrontProductId[]; hiddenProductIds?: StorefrontProductId[]; supportContacts: SupportContacts; announcement?: AnnouncementSettings | null; checkoutEnabled?: boolean; testingEnabled?: boolean; partner?: { name: string; slug: string; brandName?: string; logo?: string; pageTitle?: string; headline?: string; description?: string } }>('/api/catalog' + (shopSlug ? '?partner=' + encodeURIComponent(shopSlug) : '')),
+        catalog: () => api<{ completedOrdersByProduct?: Record<string, number>; plans: CatalogPlan[]; products?: DynamicProduct[]; paymentMethods?: PaymentMethodOption[]; productOrder?: StorefrontProductId[]; hiddenProductIds?: StorefrontProductId[]; supportContacts: SupportContacts; announcement?: AnnouncementSettings | null; checkoutEnabled?: boolean; contactPurchase?: boolean; supportQr?: string; testingEnabled?: boolean; partner?: { name: string; slug: string; brandName?: string; logo?: string; pageTitle?: string; headline?: string; description?: string } }>('/api/catalog' + (shopSlug ? '?partner=' + encodeURIComponent(shopSlug) : '')),
         onOrders: value => { if (generation.current === current) { setOrders(value.orders); setRecoveryEmail(value.recoveryEmail) } },
-        onCatalog: value => { if (generation.current === current) { setCatalog(value.plans); setProducts(value.products ?? []); setCompletedOrdersByProduct(value.completedOrdersByProduct ?? {}); setPaymentMethods(value.paymentMethods ?? []); setProductOrder(value.productOrder ?? []); setHiddenProductIds(value.hiddenProductIds ?? []); setSupportContacts(value.supportContacts); setAnnouncement(value.announcement ?? null); setCheckoutEnabled(value.checkoutEnabled === true); setTestingEnabled(value.testingEnabled === true); setPartner(value.partner); setCatalogReady(true); setShopUnavailable(false) } },
+        onCatalog: value => { if (generation.current === current) { setCatalog(value.plans); setProducts(value.products ?? []); setCompletedOrdersByProduct(value.completedOrdersByProduct ?? {}); setPaymentMethods(value.paymentMethods ?? []); setProductOrder(value.productOrder ?? []); setHiddenProductIds(value.hiddenProductIds ?? []); setSupportContacts(value.supportContacts); setAnnouncement(value.announcement ?? null); setCheckoutEnabled(value.checkoutEnabled === true); setContactPurchase(value.contactPurchase === true); setWechatQr(value.supportQr ?? ''); setTestingEnabled(value.testingEnabled === true); setPartner(value.partner); setCatalogReady(true); setShopUnavailable(false) } },
         onReady: () => { if (generation.current === current) setReady(true) },
       })
       if (generation.current === current) {
         setPollingClock(Date.now())
-        if (offers.status === 'rejected') { setCompletedOrdersByProduct({}); setCheckoutEnabled(false); setReady(false); if (shopSlug && offers.reason instanceof RequestError && offers.reason.status === 404) setShopUnavailable(true) }
+        if (offers.status === 'rejected') { setCompletedOrdersByProduct({}); setCheckoutEnabled(false); setContactPurchase(false); setWechatQr(''); setReady(false); if (shopSlug && offers.reason instanceof RequestError && offers.reason.status === 404) setShopUnavailable(true) }
         if (list.status === 'fulfilled' && offers.status === 'fulfilled') { setReady(true); setError('') }
         else setError(errorMessage(list.status === 'rejected' ? list.reason : offers.status === 'rejected' ? offers.reason : undefined))
       }
@@ -115,5 +117,5 @@ export function useStore(page: string) {
       return old && old.version > order.version ? previous : [order, ...previous.filter(item => item.id !== order.id)].sort((a,b) => b.createdAt-a.createdAt).slice(0,100)
     })
   }
-  return { orders, recoveryEmail, catalog, products, completedOrdersByProduct, paymentMethods, productOrder, hiddenProductIds, checkoutEnabled, testingEnabled, partner, catalogReady, supportContacts, announcement, shopUnavailable, ready, busy, pendingAction, error, refresh, create, createDynamic, action, acceptOrder }
+  return { orders, recoveryEmail, catalog, products, completedOrdersByProduct, paymentMethods, productOrder, hiddenProductIds, checkoutEnabled, contactPurchase, wechatQr, testingEnabled, partner, catalogReady, supportContacts, announcement, shopUnavailable, ready, busy, pendingAction, error, refresh, create, createDynamic, action, acceptOrder }
 }

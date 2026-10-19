@@ -37,21 +37,23 @@ function CatalogSkeleton() {
   </div>
 }
 
-export function ProductCatalog({ onHelp, onOrders, onNavigate, offers, catalogReady, error, productOrder = [], hiddenProductIds = [], products = [] }: { catalogReady: boolean; error?: string; productOrder?: readonly string[]; hiddenProductIds?: readonly string[]; products?: DynamicProduct[]; onHelp: () => void; onOrders: () => void; onNavigate: (page: string) => void; offers: CatalogPlan[] }) {
+export function ProductCatalog({ onHelp, onOrders, onNavigate, offers, contactPurchase = false, catalogReady, error, productOrder = [], hiddenProductIds = [], products = [] }: { catalogReady: boolean; error?: string; productOrder?: readonly string[]; hiddenProductIds?: readonly string[]; products?: DynamicProduct[]; contactPurchase?: boolean; onHelp: () => void; onOrders: () => void; onNavigate: (page: string) => void; offers: CatalogPlan[] }) {
   const { t } = useStorefrontI18n()
   const [category, setCategory] = useState('all')
   const [query, setQuery] = useState('')
   const [interest, setInterest] = useState<InterestProduct>()
   const [interestOpen, setInterestOpen] = useState(false)
-  const plans = catalogSubscriptionPlans(offers)
-  const startingPrice = catalogStartingPrice(offers)
+  // In contact-only mode the cards stay actionable even though online checkout is off.
+  const displayOffers = contactPurchase ? offers.map(offer => ({ ...offer, enabled: offer.contactEnabled ?? offer.enabled })) : offers
+  const plans = catalogSubscriptionPlans(displayOffers)
+  const startingPrice = catalogStartingPrice(displayOffers)
   const matches = (group: string, text: string) => (category === 'all' || category === group) && text.toLowerCase().includes(query.trim().toLowerCase())
   const chatgpt = matches('ai', 'ChatGPT Plus Pro')
   const gmail = matches('mail', 'Gmail 邮箱账号 email accounts 2FA')
   const upcoming = UPCOMING_PRODUCTS.filter(p => matches('ai', p.name))
   const memberships = Object.entries(EMAIL_PRODUCTS).filter(([, p]) => p.productId !== 'gmail' && matches(p.productId === 'gemini' ? 'ai' : 'learning', p.name + (p.productId === 'duolingo' ? ' Duolingo' : '')))
   const xgift = matches('tool', 'X Premium 推特 Twitter 会员赠送')
-  const xOffers = offers.filter(p => p.product_id === 'x-premium')
+  const xOffers = displayOffers.filter(p => p.product_id === 'x-premium')
   const xAvailable = xOffers.some(p => p.enabled)
   const xOffer = [...xOffers].sort((a, b) => Number(Boolean(b.enabled)) - Number(Boolean(a.enabled)) || a.price_cents - b.price_cents)[0]
   const sms = matches('tool', 'Codex 接码 SMS verification')
@@ -61,11 +63,11 @@ export function ProductCatalog({ onHelp, onOrders, onNavigate, offers, catalogRe
   }
   const cards: { id: string; compact?: boolean; node: ReactNode }[] = [
     { id: "chatgpt", node: chatgpt && <article className="store-product"><div className="store-product-heading"><h3>ChatGPT</h3>{offers.length > 0 && !plans.some(p => p.enabled) && <span>{t('暂停售卖')}</span>}</div><p className="store-spec">{t('自有账号充值 · Plus / Pro')}</p><SubscriptionDeck plans={plans} /><div className="store-product-bottom"><span className="store-starting-price">{startingPrice === null ? <small>{t(offers.length ? '价格暂不可用' : '价格加载中')}</small> : <>¥{formatCatalogPrice(startingPrice)}<small>{t(' 起')}</small></>}</span><a className="store-action" href={storefrontHref('product/chatgpt')} onClick={e => navigate(e, 'product/chatgpt')}>{t('选择套餐')}</a></div></article> },
-    ...memberships.map(([id, product]) => { const offer = offers.find(p => p.id === id); return { id: product.productId, node: <article key={id} className="store-product membership-product"><div className="store-product-heading"><h3>{product.productId === 'gemini' ? 'Gemini Pro' : t('多邻国')}</h3><span>{t(product.duration + '会员')}</span></div><p className="store-spec">{t(product.label)} · {t('邮件交付')}</p><MembershipScene productId={product.productId as 'gemini' | 'duolingo'} /><div className="store-product-bottom"><span className="store-starting-price">{offer ? <>¥{formatCatalogPrice(offer.price_cents / 100)}<small> / {t(product.duration)}</small></> : <small>{t(offers.length ? '暂未开放' : '价格加载中')}</small>}</span><a className="store-action" href={storefrontHref('product/' + product.productId)} onClick={e => navigate(e, 'product/' + product.productId)}>{t(offer?.enabled ? '查看商品' : '查看详情')}</a></div></article> } }),
+    ...memberships.map(([id, product]) => { const offer = displayOffers.find(p => p.id === id); return { id: product.productId, node: <article key={id} className="store-product membership-product"><div className="store-product-heading"><h3>{product.productId === 'gemini' ? 'Gemini Pro' : t('多邻国')}</h3><span>{t(product.duration + '会员')}</span></div><p className="store-spec">{t(product.label)} · {t('邮件交付')}</p><MembershipScene productId={product.productId as 'gemini' | 'duolingo'} /><div className="store-product-bottom"><span className="store-starting-price">{offer ? <>¥{formatCatalogPrice(offer.price_cents / 100)}<small> / {t(product.duration)}</small></> : <small>{t(offers.length ? '暂未开放' : '价格加载中')}</small>}</span><a className="store-action" href={storefrontHref('product/' + product.productId)} onClick={e => navigate(e, 'product/' + product.productId)}>{t(offer?.enabled ? '查看商品' : '查看详情')}</a></div></article> } }),
     { id: "x-premium", node: xgift && <article className="store-product membership-product x-product"><div className="store-product-heading"><h3>X Premium</h3><span>{t(offers.length > 0 && !xAvailable ? '暂停售卖' : '会员订阅')}</span></div><p className="store-spec">{t('3 / 6 个月 · 你的账号，继续精彩')}</p><XPremiumScene /><div className="store-product-bottom"><span className="store-starting-price">{xOffer ? <>¥{formatCatalogPrice(xOffer.price_cents / 100)}<small>{t(' 起')}</small></> : <small>{t('价格加载中')}</small>}</span><a className="store-action" href={storefrontHref('product/x-premium')} onClick={e => navigate(e, 'product/x-premium')}>{t(xAvailable ? '选择套餐' : '查看详情')}</a></div></article> },
-    { id: "gmail", node: gmail && <article className="store-product"><div className="store-product-heading"><h3>{t('Gmail 账号')}</h3><span>{t('美国个人白号')}</span></div><p className="store-spec">{t('带 2FA · 账号资料自动邮件交付')}</p><div className="store-mail-art" aria-hidden="true"><div className="store-envelope" /><span className="store-envelope-label"><Mail size={16} />Gmail</span></div><div className="store-product-bottom"><span className="store-starting-price">{offers.find(p => p.id === 'gmail-account') ? <>¥{formatCatalogPrice(offers.find(p => p.id === 'gmail-account')!.price_cents / 100)}<small>{t(' / 个')}</small></> : <small>{t('价格加载中')}</small>}</span><a className="store-action" href={storefrontHref('product/gmail')} onClick={e => navigate(e, 'product/gmail')}>{t(offers.some(p => p.id === 'gmail-account' && p.enabled) ? '查看商品' : '查看详情')}</a></div></article> },
+    { id: "gmail", node: gmail && <article className="store-product"><div className="store-product-heading"><h3>{t('Gmail 账号')}</h3><span>{t('美国个人白号')}</span></div><p className="store-spec">{t('带 2FA · 账号资料自动邮件交付')}</p><div className="store-mail-art" aria-hidden="true"><div className="store-envelope" /><span className="store-envelope-label"><Mail size={16} />Gmail</span></div><div className="store-product-bottom"><span className="store-starting-price">{displayOffers.find(p => p.id === 'gmail-account') ? <>¥{formatCatalogPrice(displayOffers.find(p => p.id === 'gmail-account')!.price_cents / 100)}<small>{t(' / 个')}</small></> : <small>{t('价格加载中')}</small>}</span><a className="store-action" href={storefrontHref('product/gmail')} onClick={e => navigate(e, 'product/gmail')}>{t(displayOffers.some(p => p.id === 'gmail-account' && p.enabled) ? '查看商品' : '查看详情')}</a></div></article> },
     ...upcoming.map(product => ({ id: product.id, compact: true, node: <Button key={product.id} variant="ghost" className="store-compact" onClick={() => { setInterest(product); setInterestOpen(true) }}><ProductMark small productId={product.id} /><span><strong>{product.name}</strong><small>{t('待上架')}</small></span><ChevronRight size={16} /></Button> })),
-    { id: 'codex-sms', compact: true, node: sms && <a className="store-compact" href={storefrontHref('product/codex-sms')} onClick={e => navigate(e, 'product/codex-sms')}><ProductMark small productId="codex-sms" /><span><strong>{t('Codex 接码')}</strong><small>{t(offers.some(o => o.product_id === 'codex-sms' && o.enabled) ? '按次服务' : '暂停售卖')}</small></span><ChevronRight size={16} /></a> },
+    { id: 'codex-sms', compact: true, node: sms && <a className="store-compact" href={storefrontHref('product/codex-sms')} onClick={e => navigate(e, 'product/codex-sms')}><ProductMark small productId="codex-sms" /><span><strong>{t('Codex 接码')}</strong><small>{t(displayOffers.some(o => o.product_id === 'codex-sms' && o.enabled) ? '按次服务' : '暂停售卖')}</small></span><ChevronRight size={16} /></a> },
   ]
   const groups: typeof cards[] = []
   for (const id of normalizeProductOrder(productOrder)) {
@@ -97,12 +99,12 @@ export function ProductCatalog({ onHelp, onOrders, onNavigate, offers, catalogRe
         </div>)}
         {dynamicCards.length > 0 && <div className="store-featured store-product-group dynamic-product-group">
           {dynamicCards.map((product, index) => <div key={product.id} className="store-card-enter reveal-in" style={{ animationDelay: `${Math.min(index, 6) * 40}ms` }}>
-            <DynamicProductCard product={product} offers={offers} onOpen={page => event => navigate(event, page)} />
+            <DynamicProductCard product={product} offers={displayOffers} contactPurchase={contactPurchase} onOpen={page => event => navigate(event, page)} />
           </div>)}
         </div>}
         {!groups.length && !dynamicCards.length && <p className="store-empty" role="status">{t('没有找到相关商品，试试其他名称。')}</p>}
       </>}
-      <p className="store-order-note"><ReceiptText size={15} />{t('付款、交付与售后，都可以在')}<button onClick={onOrders}>{t('「我的订单」')}</button>{t('中继续。')}</p>
+      <p className="store-order-note"><ReceiptText size={15} />{contactPurchase ? t('购买前请先添加客服微信，确认商品、库存与交付时间。') : <>{t('付款、交付与售后，都可以在')}<button onClick={onOrders}>{t('「我的订单」')}</button>{t('中继续。')}</>}</p>
     </div>
     {interest && <LaunchInterestDialog key={interest.id} product={interest} open={interestOpen} onOpenChange={setInterestOpen} />}
   </section>

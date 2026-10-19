@@ -7,6 +7,10 @@ export function catalogSubscriptionPlans(offers: CatalogPlan[]) {
     return { ...tier, price: offer && Number.isSafeInteger(offer.price_cents) && offer.price_cents >= 0 ? offer.price_cents / 100 : null, enabled: Boolean(offer?.enabled) }
   })
 }
+/** Online checkout is off in contact-only mode; contactEnabled marks plans the merchant still sells. */
+export function catalogPlanSaleable(plan: CatalogPlan, contactPurchase = false) {
+  return Boolean(plan.enabled || (contactPurchase && plan.contactEnabled))
+}
 export function catalogStartingPrice(offers: CatalogPlan[]) {
   const plans = catalogSubscriptionPlans(offers)
   const available = plans.filter(p => p.enabled && p.price !== null)
