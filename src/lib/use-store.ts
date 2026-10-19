@@ -8,8 +8,9 @@ import { storefrontShopSlug } from './storefront-routing'
 import type { SupportContacts } from '../../shared/support-contacts'
 import type { AnnouncementSettings } from '../../shared/announcements'
 import { readStoreResources } from './store-reads'
+import type { DynamicProduct } from '../../shared/dynamic-products'
 
-export type ServerOrder = DemoOrder & { supportsWarranty?: boolean; paymentSummary?: { amountCents: number; feeCents: number; feeBps: number; refundedFeeCents: number } | null; xgift?: { username: string; state: string; receipt: string | null; failureCode: string | null; message: string } | null; delivery?: DeliverySummary; purchaseNote?: string; manualFulfillment?: boolean; isTest?: boolean; version: number; mode: 'demo' | 'live'; paymentStatus: string; planName: string; partnerName?: string; settlementStatus?: 'pending' | 'paid' | null; partnerSource?: { id: string; slug: string; name: string; email: string; wechat: string; qq: string } | null; supportContacts?: SupportContacts; updatedAt: number; fulfillment?: { precheckRequired?: boolean; syncError?: boolean; financialHold?: boolean; paymentUrl: string | null; paymentQr?: string | null; paymentKind?: 'qr' | 'link' | null; expiresAt: number | null; paymentExpired?: boolean; rechargeStatus: string | null; failureCode?: string | null; errorCategory?: string | null; resultCode?: string | null; progressStage?: string | null; progressVersion?: number; progressUpdatedAt?: number | null; attemptNo?: number | null; retryKey: string | null; retryMode: 'session' | 'access_token' | null; canSubmit: boolean; message: string | null; accountEmailMasked: string | null; finishedAt: number | null } }
+export type ServerOrder = DemoOrder & { supportsWarranty?: boolean; fulfillmentMode?: 'card' | 'account' | 'recharge' | 'manual' | null; dynamicDelivery?: { kind: string; note: string; delivered_at: number; version: number } | null; paymentSummary?: { amountCents: number; feeCents: number; feeBps: number; refundedFeeCents: number } | null; xgift?: { username: string; state: string; receipt: string | null; failureCode: string | null; message: string } | null; delivery?: DeliverySummary; purchaseNote?: string; manualFulfillment?: boolean; isTest?: boolean; version: number; mode: 'demo' | 'live'; paymentStatus: string; planName: string; partnerName?: string; settlementStatus?: 'pending' | 'paid' | null; partnerSource?: { id: string; slug: string; name: string; email: string; wechat: string; qq: string } | null; supportContacts?: SupportContacts; updatedAt: number; fulfillment?: { precheckRequired?: boolean; syncError?: boolean; financialHold?: boolean; paymentUrl: string | null; paymentQr?: string | null; paymentKind?: 'qr' | 'link' | null; expiresAt: number | null; paymentExpired?: boolean; rechargeStatus: string | null; failureCode?: string | null; errorCategory?: string | null; resultCode?: string | null; progressStage?: string | null; progressVersion?: number; progressUpdatedAt?: number | null; attemptNo?: number | null; retryKey: string | null; retryMode: 'session' | 'access_token' | null; canSubmit: boolean; message: string | null; accountEmailMasked: string | null; finishedAt: number | null } }
 const shopSlug = storefrontShopSlug(location.pathname)
 let clientReady: Promise<unknown> | undefined
 function initializeClient() {
@@ -22,6 +23,7 @@ export function useStore(page: string) {
   const [productOrder, setProductOrder] = useState<StorefrontProductId[]>([])
   const [completedOrdersByProduct, setCompletedOrdersByProduct] = useState<Record<string, number>>({})
   const [catalog, setCatalog] = useState<CatalogPlan[]>([])
+  const [products, setProducts] = useState<DynamicProduct[]>([])
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethodOption[]>([])
   const [checkoutEnabled, setCheckoutEnabled] = useState(false)
   const [testingEnabled, setTestingEnabled] = useState(false)
@@ -39,6 +41,7 @@ export function useStore(page: string) {
   const fetching = useRef<number | undefined>(undefined)
   const generation = useRef(0)
   const retryCreate = useRef<{ plan: PlanId; price: number; email: string; username?: string; couponCode?: string; key: string } | undefined>(undefined)
+  const dynamicCreate = useRef<{ signature: string; key: string } | undefined>(undefined)
   const pollingPeriod = orders.some(o => o.mode === 'live' && ['pending','processing'].includes(o.status)) ? orders.some(o => o.mode === 'live' && ['pending','processing'].includes(o.status) && pollingClock - (o.startedAt ?? o.createdAt) < 120000) ? 5000 : 15000 : orders.some(o => o.status === 'processing') ? 1500 : page === 'orders' ? 15000 : 30000
   const refresh = useCallback(async (force = false) => {
     if (mutation.current || (fetching.current !== undefined && !force)) return
@@ -48,9 +51,9 @@ export function useStore(page: string) {
       const [list, offers] = await readStoreResources({
         initialize: initializeClient,
         orders: () => api<{ orders: ServerOrder[]; recoveryEmail: string | null }>('/api/orders'),
-        catalog: () => api<{ completedOrdersByProduct?: Record<string, number>; plans: CatalogPlan[]; paymentMethods?: PaymentMethodOption[]; productOrder?: StorefrontProductId[]; hiddenProductIds?: StorefrontProductId[]; supportContacts: SupportContacts; announcement?: AnnouncementSettings | null; checkoutEnabled?: boolean; testingEnabled?: boolean; partner?: { name: string; slug: string; brandName?: string; logo?: string; pageTitle?: string; headline?: string; description?: string } }>('/api/catalog' + (shopSlug ? '?partner=' + encodeURIComponent(shopSlug) : '')),
+        catalog: () => api<{ completedOrdersByProduct?: Record<string, number>; plans: CatalogPlan[]; products?: DynamicProduct[]; paymentMethods?: PaymentMethodOption[]; productOrder?: StorefrontProductId[]; hiddenProductIds?: StorefrontProductId[]; supportContacts: SupportContacts; announcement?: AnnouncementSettings | null; checkoutEnabled?: boolean; testingEnabled?: boolean; partner?: { name: string; slug: string; brandName?: string; logo?: string; pageTitle?: string; headline?: string; description?: string } }>('/api/catalog' + (shopSlug ? '?partner=' + encodeURIComponent(shopSlug) : '')),
         onOrders: value => { if (generation.current === current) { setOrders(value.orders); setRecoveryEmail(value.recoveryEmail) } },
-        onCatalog: value => { if (generation.current === current) { setCatalog(value.plans); setCompletedOrdersByProduct(value.completedOrdersByProduct ?? {}); setPaymentMethods(value.paymentMethods ?? []); setProductOrder(value.productOrder ?? []); setHiddenProductIds(value.hiddenProductIds ?? []); setSupportContacts(value.supportContacts); setAnnouncement(value.announcement ?? null); setCheckoutEnabled(value.checkoutEnabled === true); setTestingEnabled(value.testingEnabled === true); setPartner(value.partner); setCatalogReady(true); setShopUnavailable(false) } },
+        onCatalog: value => { if (generation.current === current) { setCatalog(value.plans); setProducts(value.products ?? []); setCompletedOrdersByProduct(value.completedOrdersByProduct ?? {}); setPaymentMethods(value.paymentMethods ?? []); setProductOrder(value.productOrder ?? []); setHiddenProductIds(value.hiddenProductIds ?? []); setSupportContacts(value.supportContacts); setAnnouncement(value.announcement ?? null); setCheckoutEnabled(value.checkoutEnabled === true); setTestingEnabled(value.testingEnabled === true); setPartner(value.partner); setCatalogReady(true); setShopUnavailable(false) } },
         onReady: () => { if (generation.current === current) setReady(true) },
       })
       if (generation.current === current) {
@@ -90,6 +93,16 @@ export function useStore(page: string) {
     if (result) retryCreate.current = undefined
     return result
   }
+  const createDynamic = async (plan: string, price: number, email: string, inputs: Record<string, string>) => {
+    if (!ready) { setError('订单服务尚未就绪，请稍后重试。'); return }
+    if (!checkoutEnabled) { setError('该服务暂未开放购买，请稍后再来。'); return }
+    const signature = JSON.stringify([plan, price, email, inputs])
+    if (dynamicCreate.current?.signature !== signature) dynamicCreate.current = { signature, key: crypto.randomUUID() }
+    const attempt = dynamicCreate.current
+    const result = await mutate(() => api('/api/orders', { email, plan, inputs, expectedPrice: Math.round(price * 100), key: attempt.key, partner: shopSlug }))
+    if (result) dynamicCreate.current = undefined
+    return result
+  }
   const action = async (id: string, action: OrderAction) => {
     const order = orders.find(item => item.id === id)
     if (!order) return
@@ -102,5 +115,5 @@ export function useStore(page: string) {
       return old && old.version > order.version ? previous : [order, ...previous.filter(item => item.id !== order.id)].sort((a,b) => b.createdAt-a.createdAt).slice(0,100)
     })
   }
-  return { orders, recoveryEmail, catalog, completedOrdersByProduct, paymentMethods, productOrder, hiddenProductIds, checkoutEnabled, testingEnabled, partner, catalogReady, supportContacts, announcement, shopUnavailable, ready, busy, pendingAction, error, refresh, create, action, acceptOrder }
+  return { orders, recoveryEmail, catalog, products, completedOrdersByProduct, paymentMethods, productOrder, hiddenProductIds, checkoutEnabled, testingEnabled, partner, catalogReady, supportContacts, announcement, shopUnavailable, ready, busy, pendingAction, error, refresh, create, createDynamic, action, acceptOrder }
 }

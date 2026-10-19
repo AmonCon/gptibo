@@ -14,6 +14,9 @@ import { UPCOMING_PRODUCTS } from '@/lib/products'
 import { storefrontHref } from '@/lib/storefront-routing'
 import { catalogSubscriptionPlans, catalogStartingPrice, formatCatalogPrice } from '@/lib/catalog-display'
 import type { CatalogPlan } from '@/lib/api'
+import type { DynamicProduct } from '../../shared/dynamic-products'
+import { CATEGORY_LABELS } from '../../shared/dynamic-products'
+import { DynamicProductCard } from './dynamic-product'
 import '@/styles/storefront-home.css'
 
 const categories = [
@@ -34,7 +37,7 @@ function CatalogSkeleton() {
   </div>
 }
 
-export function ProductCatalog({ onHelp, onOrders, onNavigate, offers, catalogReady, error, productOrder = [], hiddenProductIds = [] }: { catalogReady: boolean; error?: string; productOrder?: readonly string[]; hiddenProductIds?: readonly string[]; onHelp: () => void; onOrders: () => void; onNavigate: (page: string) => void; offers: CatalogPlan[] }) {
+export function ProductCatalog({ onHelp, onOrders, onNavigate, offers, catalogReady, error, productOrder = [], hiddenProductIds = [], products = [] }: { catalogReady: boolean; error?: string; productOrder?: readonly string[]; hiddenProductIds?: readonly string[]; products?: DynamicProduct[]; onHelp: () => void; onOrders: () => void; onNavigate: (page: string) => void; offers: CatalogPlan[] }) {
   const { t } = useStorefrontI18n()
   const [category, setCategory] = useState('all')
   const [query, setQuery] = useState('')
@@ -72,6 +75,9 @@ export function ProductCatalog({ onHelp, onOrders, onNavigate, offers, catalogRe
     if (last && Boolean(last[0].compact) === Boolean(card.compact)) last.push(card)
     else groups.push([card])
   }
+  const dynamicCards = products
+    .filter(product => matches(product.category, `${product.name} ${product.tagline} ${product.description} ${CATEGORY_LABELS[product.category]}`))
+    .sort((a, b) => a.sort_order - b.sort_order)
   const visibleCards = groups.flat()
   return <section id="catalog-products" className="store-home page-width" aria-label={t('商品目录')}>
     <aside className="store-sidebar" aria-label={t('商品分类')}>
@@ -89,7 +95,12 @@ export function ProductCatalog({ onHelp, onOrders, onNavigate, offers, catalogRe
             {card.node}
           </div>)}
         </div>)}
-        {!groups.length && <p className="store-empty" role="status">{t('没有找到相关商品，试试其他名称。')}</p>}
+        {dynamicCards.length > 0 && <div className="store-featured store-product-group dynamic-product-group">
+          {dynamicCards.map((product, index) => <div key={product.id} className="store-card-enter reveal-in" style={{ animationDelay: `${Math.min(index, 6) * 40}ms` }}>
+            <DynamicProductCard product={product} offers={offers} onOpen={page => event => navigate(event, page)} />
+          </div>)}
+        </div>}
+        {!groups.length && !dynamicCards.length && <p className="store-empty" role="status">{t('没有找到相关商品，试试其他名称。')}</p>}
       </>}
       <p className="store-order-note"><ReceiptText size={15} />{t('付款、交付与售后，都可以在')}<button onClick={onOrders}>{t('「我的订单」')}</button>{t('中继续。')}</p>
     </div>

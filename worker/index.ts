@@ -14,6 +14,7 @@ import { invoiceNotification, reconcileInvoicePayments } from './invoices.ts'
 import { sendDueRechargeReminders } from './recharge-reminders.ts'
 import { reconcileGmail } from './account_supplier/service.ts'
 import { requireSecureTransport, secureResponse } from './security.ts'
+import { purgeExpiredInputs } from './dynamic-products.ts'
 const json = (value: unknown, status = 200) => Response.json(value, {
   status, headers: { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', ...(status === 429 ? { 'Retry-After': '60' } : {}) },
 })
@@ -32,6 +33,7 @@ export default {
       await reconcileRechargeRefunds(env)
     }
     await Promise.all([sendDueRechargeReminders(env), reconcileGmail(env), reconcileDeliverySupplier(env), reconcileXGift(env)])
+    await purgeExpiredInputs(env).catch(() => { console.error('Buyer input purge temporarily unavailable') })
   },
   async fetch(request: Request, env: Env): Promise<Response> {
     try {

@@ -9,6 +9,9 @@ export type Order = {
   payment_status: 'unpaid' | 'simulated' | 'paid'; status: Status; created_at: number; updated_at: number
   started_at: number | null; outcome: 'success' | 'failed' | null; sms_phone: string | null; version: number
   partner_id: string | null; partner_name: string | null; cost_cents: number | null
+  /** Set only for merchant-managed products; legacy products keep their own routes. */
+  fulfillment: 'card' | 'account' | 'recharge' | 'manual' | null
+  product_slug: string | null
 }
 export async function getOrder(env: Env, id: string, ownerHash?: string, email?: string | null) {
   const o = await env.INTEREST_DB.prepare('SELECT * FROM orders WHERE id = ?' + (ownerHash ? ' AND is_test=0 AND (owner_hash = ? OR customer_email = ?)' : '')).bind(...(ownerHash ? [id, ownerHash, email ?? null] : [id])).first<Order>()

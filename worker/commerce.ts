@@ -28,6 +28,7 @@ import { invoiceRoutes } from './invoices.ts'
 import { publicAnnouncement } from './announcements.ts'
 import { rechargeReminderPreview } from './recharge-reminders.ts'
 import { adminGmailOrder, confirmGmailNotPurchased, fulfillGmail, gmailCheckoutEnabled, gmailProductsRoute, gmailSnapshot, gmailSnapshotStatement } from './account_supplier/service.ts'
+import { createDynamicOrder, deliverySummary, findDynamicPlan, listDynamicPlans, listProducts, planForOrder, productAdmin, readBuyerInputs, readDelivery, buyerInputSummary, writeDelivery, purgeExpiredInputs, deliveryKindFor } from './dynamic-products.ts'
 
 type Plan = { delivery_instructions: string; partner_enabled: number; id: string; product_id: string; name: string; price_cents: number; enabled: number; renewal_only: number; version: number }
 type OrderPartnerSource = { id: string; slug: string; name: string; email: string; wechat: string; qq: string }
@@ -43,7 +44,8 @@ const customerOrder = async (env: Env, o: Order, contacts = new Map<string, Prom
   contacts.set(owner, settings)
   const [support, fulfillment] = await Promise.all([settings, rechargeSummary(env, o)])
   if (fulfillment) Object.assign(fulfillment, { syncError })
-  return { ...publicOrder(o), xgift: await xgiftSummary(env, o), manualFulfillment: isLegacyManualOrder(o, Boolean(fulfillment)) || Boolean(emailProduct(o.plan)), delivery: await emailDeliverySummary(env, o), supportContacts: support.contacts, refundHold: !!o.refund_hold || !!fulfillment?.financialHold, fulfillment }
+  const dynamic = o.fulfillment ? await deliverySummary(env, o) : null
+  return { ...publicOrder(o), fulfillmentMode: o.fulfillment ?? null, xgift: await xgiftSummary(env, o), manualFulfillment: isLegacyManualOrder(o, Boolean(fulfillment)) || Boolean(emailProduct(o.plan)) || Boolean(o.fulfillment), delivery: await emailDeliverySummary(env, o), dynamicDelivery: dynamic, supportContacts: support.contacts, refundHold: !!o.refund_hold || !!fulfillment?.financialHold, fulfillment }
 }
 async function orderPartnerSource(env: Env, order: Order): Promise<OrderPartnerSource | null> {
   if (!order.partner_id) return null
@@ -85,6 +87,7 @@ export async function commerce(request: Request, env: Env): Promise<Response> {
       if (path.startsWith('/api/admin/payments/test')) return await paymentTesting(request, env, url)
       if (path.startsWith('/api/admin/refunds')) return await adminRefunds(request, env, url)
       if (path.startsWith('/api/admin/partners') || path.startsWith('/api/admin/partner-payouts')) return await adminPartnerRoutes(request, env, url)
+      if (path === '/api/admin/products' || path.startsWith('/api/admin/products/') || path === '/api/admin/product-plans' || path.startsWith('/api/admin/product-plans/')) return await productAdmin(request, env, url)
       return await admin(request, env, url)
     }
     if (path === '/api/catalog' && method === 'GET') {
@@ -94,16 +97,22 @@ export async function commerce(request: Request, env: Env): Promise<Response> {
       const testing = env.ORDER_TESTING_ENABLED === 'true'
       const email = emailCheckoutEnabled(env), gmail = gmailCheckoutEnabled(env), delivery_supplier = delivery_supplierCheckoutEnabled(env)
       const mapped = live ? productMap(env) : {}
-      const [catalog, support, announcement] = await Promise.all([
+      const [catalog, support, announcement, products] = await Promise.all([
         partner ? partnerCatalog(env, partner) : plans(env).then(plans => ({ plans })),
         supportContactsSettings(env, partner?.id),
         partner ? publicAnnouncement(env, partner.id) : null,
+        listProducts(env, true),
       ])
+      const dynamicCheckout = testing || (env.PAYMENT_CHECKOUT_ENABLED === 'true' && alipayConfigured(env))
+      const liveProductIds = new Set(products.map(item => item.id))
+      const hasDynamicPlans = (catalog.plans as Plan[]).some(plan => Boolean((plan as Plan & { fulfillment?: string | null }).fulfillment) && plan.enabled && liveProductIds.has(plan.product_id))
       // Storefront prices are configured retail prices, independent of supplier latency.
       const offers = (catalog.plans as Plan[]).map(plan => ({ ...plan, enabled: plan.enabled && (
-        isXGiftPlan(plan.id) ? xgiftCheckoutEnabled(env) : plan.id === 'gmail-account' ? gmail : isDeliverySupplierPlan(plan.id) ? delivery_supplier : emailProduct(plan.id) ? email : testing || (live && Boolean(mapped[plan.id]))
+        (plan as Plan & { fulfillment?: string | null }).fulfillment
+          ? dynamicCheckout && liveProductIds.has(plan.product_id)
+          : isXGiftPlan(plan.id) ? xgiftCheckoutEnabled(env) : plan.id === 'gmail-account' ? gmail : isDeliverySupplierPlan(plan.id) ? delivery_supplier : emailProduct(plan.id) ? email : testing || (live && Boolean(mapped[plan.id]))
       ) ? 1 : 0 }))
-      return json({ ...catalog, supportContacts: support.contacts, announcement, plans: offers, mode: live ? 'live' : 'demo', checkoutEnabled: testing || live || email || xgiftCheckoutEnabled(env), testingEnabled: testing }, 200, { 'Server-Timing': `catalog;dur=${(performance.now() - started).toFixed(1)}` })
+      return json({ ...catalog, products, supportContacts: support.contacts, announcement, plans: offers, mode: live ? 'live' : 'demo', checkoutEnabled: testing || live || email || xgiftCheckoutEnabled(env) || (hasDynamicPlans && dynamicCheckout), testingEnabled: testing }, 200, { 'Server-Timing': `catalog;dur=${(performance.now() - started).toFixed(1)}` })
     }
     if (path === '/api/orders/client' && method === 'POST') {
       await body(request)
@@ -111,6 +120,9 @@ export async function commerce(request: Request, env: Env): Promise<Response> {
       return json({ ok: true }, 200, { 'Set-Cookie': cookie(request, 'buyer', token, 365 * 86400) })
     }
     if (!path.startsWith('/api/orders')) throw new ApiError('未找到接口。', 404)
+    // Public capability probe: the checkout must be able to learn whether a
+    // challenge is required before it holds a buyer cookie.
+    if (path === '/api/orders/verification' && method === 'GET') return json({ enabled: false })
     const recovery = await recoveryRoutes(request, env, path)
     if (recovery) return recovery
     const { ownerHash, email: recoveredEmail } = await buyerAccess(request, env)
@@ -148,6 +160,11 @@ export async function commerce(request: Request, env: Env): Promise<Response> {
         return json({ order: await customerOrder(env, existing) })
       }
       const emailDelivery = Boolean(emailProduct(data.plan))
+      const dynamicPlan = !emailDelivery && !isXGiftPlan(data.plan) ? await findDynamicPlan(env, String(data.plan)) : null
+      if (dynamicPlan) {
+        const order = await createDynamicOrder(request, env, ownerHash, email, data)
+        return json({ order: await customerOrder(env, order) }, 201)
+      }
       const live = isXGiftPlan(data.plan) ? xgiftCheckoutEnabled(env) : data.plan === 'gmail-account' ? gmailCheckoutEnabled(env) : isDeliverySupplierPlan(data.plan) ? delivery_supplierCheckoutEnabled(env) : emailDelivery ? emailCheckoutEnabled(env) : supplierCheckoutEnabled(env)
       if (emailDelivery && !live) throw new ApiError('邮件交付商品暂未开放购买。', 409)
       if (env.ORDER_TESTING_ENABLED !== 'true' && !live) throw new ApiError('该服务暂未开放购买，请稍后再来。', 409)
@@ -182,9 +199,15 @@ export async function commerce(request: Request, env: Env): Promise<Response> {
       if (xgift && (await xgiftSummary(env, created))?.username !== xgift.username) throw new ApiError('请求编号已绑定其他接收账号。', 409)
       return json({ order: await customerOrder(env, created) }, 201)
     }
-    const match = path.match(/^\/api\/orders\/([A-Z0-9-]+)(\/demo-actions|\/refunds|\/payment|\/fulfillment)?$/)
+    const match = path.match(/^\/api\/orders\/([A-Z0-9-]+)(\/demo-actions|\/refunds|\/payment|\/fulfillment|\/delivery)?$/)
     if (match) {
       let o = await getOrder(env, match[1], ownerHash, recoveredEmail)
+      if (match[2] === '/delivery') {
+        if (request.method !== 'GET') throw new ApiError('请求方式不支持。', 405)
+        if (!o.fulfillment) throw new ApiError('该订单不支持此操作。', 409)
+        if (o.refund_hold || (o.refunded_cents ?? 0) >= o.price_cents) throw new ApiError('订单售后处理中，发货资料暂不可查看。', 409)
+        return json({ delivery: await readDelivery(env, o, 'buyer:' + o.owner_hash.slice(0, 12)), inputs: await buyerInputSummary(env, o) })
+      }
       if (match[2] === '/payment') {
         if (o.mode === 'live' && !o.is_test && await findRechargeOrder(env, o.id)) throw new ApiError('请使用订单付款入口和刷新进度。', 409)
         return await paymentAction(request, env, o)
@@ -254,9 +277,36 @@ async function admin(request: Request, env: Env, url: URL): Promise<Response> {
     const rows = (await db.prepare('SELECT orders.*, (SELECT status FROM partner_payouts WHERE id=orders.payout_id) settlement_status FROM orders' + where + ' ORDER BY created_at DESC,id DESC LIMIT 20 OFFSET ?').bind(...values, offset).all<AdminOrder>()).results
     return json({ orders: await Promise.all(rows.map(o => adminOrder(env, o))), total: count?.total ?? 0, page })
   }
-  const orderMatch = path.match(/^\/api\/admin\/orders\/([A-Z0-9-]+)(\/actions|\/platform-status|\/delivery|\/account_supplier|\/delivery_supplier)?$/)
+  const orderMatch = path.match(/^\/api\/admin\/orders\/([A-Z0-9-]+)(\/actions|\/platform-status|\/delivery|\/account_supplier|\/delivery_supplier|\/fulfillment)?$/)
   if (orderMatch) {
     const o = await settle(env, await getOrder(env, orderMatch[1]))
+    if (orderMatch[2] === '/fulfillment') {
+      if (!o.fulfillment) throw new ApiError('该订单不是动态商品订单。', 409)
+      if (request.method === 'GET') {
+        const inputs = await readBuyerInputs(env, o, 'admin:' + env.ADMIN_USERNAME).catch(e => { if (e instanceof ApiError && e.status === 404) return null; throw e })
+        return json({ inputs, delivery: await readDelivery(env, o, 'admin:' + env.ADMIN_USERNAME).catch(e => { if (e instanceof ApiError && e.status === 404) return null; throw e }) })
+      }
+      if (request.method !== 'POST') throw new ApiError('请求方式不支持。', 405)
+      const data = await body(request, 16384)
+      const note = requiredNote(data)
+      if (data.version !== o.version) throw new ApiError('订单已更新，请刷新详情后重试。', 409)
+      if (o.redemption_blocked) throw new ApiError('请先解除禁止兑换标记。', 409)
+      if (o.refund_hold || o.refunded_cents >= o.price_cents) throw new ApiError('售后中的订单不能发货。', 409)
+      if (o.payment_status !== 'paid' && o.mode !== 'demo') throw new ApiError('订单尚未付款，不能发货。', 409)
+      const plan = await planForOrder(env, o)
+      if (!plan) throw new ApiError('未找到对应套餐。', 409)
+      const payload = data.payload
+      if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new ApiError('请填写发货内容。')
+      const values: Record<string, string> = {}
+      for (const [key, value] of Object.entries(payload as Record<string, unknown>)) {
+        if (typeof value !== 'string' || !value.trim() || value.length > 2000) throw new ApiError('发货内容格式不正确。')
+        values[key] = value.trim()
+      }
+      if (!Object.keys(values).length) throw new ApiError('请填写发货内容。')
+      if (plan.fulfillment === 'recharge' && Object.keys(values).length === 0) throw new ApiError('请填写处理结果。')
+      const next = await writeDelivery(env, o, 'admin:' + env.ADMIN_USERNAME, { kind: deliveryKindFor(o.fulfillment), payload: values, note })
+      return json({ order: await customerOrder(env, next) })
+    }
     if (orderMatch[2] === '/delivery') return emailDeliveryRoute(request, env, o)
     if (orderMatch[2] === '/delivery_supplier') {
       if (method === 'POST') {
@@ -312,6 +362,10 @@ async function admin(request: Request, env: Env, url: URL): Promise<Response> {
       }
       if (o.mode === 'demo' && data.action === 'cancel' && o.status === 'pending') patch = { status: 'cancelled' }
       if (o.mode === 'demo' && data.action === 'retry' && o.status === 'failed') patch = { status: 'session', started_at: null, outcome: null }
+      if (o.fulfillment && o.payment_status === 'paid') {
+        if (data.action === 'manual-start' && o.status === 'session') patch = { status: 'processing', started_at: Date.now() }
+        if (data.action === 'manual-complete' && ['session', 'processing'].includes(o.status)) patch = { status: 'success' }
+      }
       if (!patch) throw new ApiError('当前状态不支持此操作。', 409)
       if (data.action !== 'note' && o.redemption_blocked) throw new ApiError('请先解除禁止兑换标记。', 409)
       if (data.action !== 'note' && (o.refund_hold || o.refunded_cents >= o.price_cents)) throw new ApiError('售后中的订单不能执行此操作。', 409)

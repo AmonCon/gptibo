@@ -71,6 +71,8 @@ export interface Env {
   XGIFT_PLATFORM_API_BASE?: string
   XGIFT_PLATFORM_KEY_ID?: string
   XGIFT_PLATFORM_CLIENT_SECRET?: string
+  /** AES-GCM key material for buyer inputs and merchant deliveries. Minimum 32 characters. */
+  DELIVERY_SECRET?: string
 }
 export class ApiError extends Error {
   status: number

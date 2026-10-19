@@ -1,0 +1,61 @@
+.dynamic-product-card { --product-accent: var(--primary); }
+.dynamic-brand-mark { width:38px; height:38px; border-radius:12px; display:grid; place-items:center; color:#fff; font-size:17px; font-weight:600; flex-shrink:0; }
+.dynamic-badge { display:inline-flex; align-items:center; min-height:24px; padding:0 10px; border:1px solid var(--border); border-radius:20px; font-size:11px; color:var(--muted-foreground); }
+.dynamic-art { position:relative; height:185px; margin:6px auto 0; display:grid; place-items:center; overflow:hidden; border-radius:18px; width:100%; }
+.dynamic-art-image img { width:100%; height:100%; object-fit:cover; }
+.dynamic-art-card { background:linear-gradient(150deg,color-mix(in srgb,var(--product-accent) 8%,transparent),transparent 70%); overflow:visible; }
+.dynamic-stack-card { position:absolute; width:170px; height:106px; border-radius:13px; border:1px solid #ffffffa6; box-shadow:0 9px 20px #00000014,inset 0 1px 0 #ffffffa0; padding:14px 16px; display:flex; flex-direction:column; justify-content:space-between; transition:transform .35s cubic-bezier(.2,.8,.2,1); }
+.dynamic-stack-card[data-index="0"] { transform:translate(-40px,12px) rotate(-8deg); background:color-mix(in srgb,var(--product-accent) 14%,#ffffff); }
+.dynamic-stack-card[data-index="1"] { transform:translate(-12px,-6px) rotate(-1deg); background:color-mix(in srgb,var(--product-accent) 22%,#ffffff); }
+.dynamic-stack-card[data-index="2"] { transform:translate(46px,14px) rotate(7deg); background:color-mix(in srgb,var(--product-accent) 30%,#ffffff); }
+.dark .dynamic-stack-card { border-color:#ffffff24; box-shadow:0 9px 20px #00000038,inset 0 1px 0 #ffffff16; }
+.dark .dynamic-stack-card[data-index="0"] { background:color-mix(in srgb,var(--product-accent) 22%,#141414); }
+.dark .dynamic-stack-card[data-index="1"] { background:color-mix(in srgb,var(--product-accent) 30%,#141414); }
+.dark .dynamic-stack-card[data-index="2"] { background:color-mix(in srgb,var(--product-accent) 38%,#181818); }
+.dynamic-stack-name { font-size:14px; font-weight:600; letter-spacing:-.3px; }
+.dynamic-stack-price { align-self:flex-end; font-size:22px; font-weight:600; color:color-mix(in srgb,var(--product-accent) 80%,#111); }
+.dark .dynamic-stack-price { color:#fff; }
+@media(hover:hover) and (pointer:fine) {
+  .dynamic-product-card:hover .dynamic-stack-card[data-index="0"] { transform:translate(-48px,16px) rotate(-10deg); }
+  .dynamic-product-card:hover .dynamic-stack-card[data-index="1"] { transform:translate(-12px,-12px) rotate(-2deg); }
+  .dynamic-product-card:hover .dynamic-stack-card[data-index="2"] { transform:translate(54px,18px) rotate(9deg); }
+}
+.dynamic-art-orbit { background:radial-gradient(circle at 50% 50%,color-mix(in srgb,var(--product-accent) 14%,transparent),transparent 68%); }
+.dynamic-orbit-ring { position:absolute; width:150px; height:150px; border-radius:50%; border:1px solid color-mix(in srgb,var(--product-accent) 28%,transparent); }
+.dynamic-orbit-ring::after { content:''; position:absolute; inset:22px; border-radius:50%; border:1px dashed color-mix(in srgb,var(--product-accent) 22%,transparent); }
+.dynamic-orbit-star { display:grid; place-items:center; width:76px; height:76px; border-radius:50%; color:var(--product-accent); background:color-mix(in srgb,var(--product-accent) 12%,var(--card)); box-shadow:0 10px 24px color-mix(in srgb,var(--product-accent) 20%,transparent); }
+.dynamic-orbit-dot { position:absolute; top:38px; right:calc(50% - 76px); width:9px; height:9px; border-radius:50%; background:var(--product-accent); box-shadow:0 0 0 5px color-mix(in srgb,var(--product-accent) 16%,transparent); }
+.dynamic-art-mail { background:linear-gradient(160deg,color-mix(in srgb,var(--product-accent) 7%,transparent),transparent 70%); }
+.dynamic-envelope { width:170px; height:94px; border-radius:11px; background:color-mix(in srgb,var(--product-accent) 12%,#eef2f8); border:1px solid color-mix(in srgb,var(--product-accent) 20%,#d8dee9); transform:rotate(-6deg); box-shadow:0 10px 20px #30476018; }
+.dynamic-envelope-flap { position:absolute; width:112px; height:112px; background:color-mix(in srgb,var(--product-accent) 8%,#fafcff); border:1px solid color-mix(in srgb,var(--product-accent) 16%,#dae1ec); transform:rotate(45deg) translate(-4px,-52px); border-radius:8px; }
+.dynamic-mail-label { position:absolute; bottom:36px; left:calc(50% + 10px); padding:6px 11px; border-radius:8px; background:var(--card); border:1px solid var(--border); font-size:12px; transform:rotate(4deg); box-shadow:0 4px 10px #0000000a; }
+.dynamic-art-ticket { background:linear-gradient(160deg,color-mix(in srgb,var(--product-accent) 10%,transparent),transparent 72%); }
+.dynamic-ticket { position:relative; display:flex; flex-direction:column; justify-content:space-between; width:196px; height:110px; padding:16px 18px; border-radius:12px; background:color-mix(in srgb,var(--product-accent) 16%,var(--card)); border:1px solid color-mix(in srgb,var(--product-accent) 34%,transparent); box-shadow:0 12px 24px color-mix(in srgb,var(--product-accent) 14%,transparent); }
+.dynamic-ticket-name { font-size:16px; font-weight:600; letter-spacing:-.3px; }
+.dynamic-ticket-perf { position:absolute; top:0; bottom:0; right:52px; border-left:2px dashed color-mix(in srgb,var(--product-accent) 40%,transparent); }
+.dynamic-ticket-meta { align-self:flex-end; font-size:19px; font-weight:600; color:var(--product-accent); }
+.dynamic-art-account { background:linear-gradient(160deg,color-mix(in srgb,var(--product-accent) 8%,transparent),transparent 70%); }
+.dynamic-account-card { display:flex; align-items:center; gap:12px; width:200px; height:96px; padding:16px; border-radius:14px; background:var(--card); border:1px solid var(--border); box-shadow:0 10px 22px #00000010; }
+.dynamic-account-avatar { width:44px; height:44px; border-radius:50%; background:color-mix(in srgb,var(--product-accent) 22%,var(--card)); }
+.dynamic-account-lines { flex:1; display:grid; gap:8px; }
+.dynamic-account-lines i { height:8px; border-radius:6px; background:color-mix(in srgb,var(--product-accent) 20%,var(--border)); }
+.dynamic-account-lines i:last-child { width:60%; }
+.dynamic-account-check { position:absolute; right:calc(50% - 104px); bottom:38px; display:grid; place-items:center; width:28px; height:28px; border-radius:50%; background:var(--product-accent); color:#fff; }
+.dynamic-faq-hint { display:flex; align-items:center; gap:7px; font-size:11px; color:var(--muted-foreground); }
+.dynamic-faq .faq-list details { border-bottom:1px solid var(--border); }
+.dynamic-faq .faq-list summary { padding:16px 0; cursor:pointer; font-size:13px; }
+.dynamic-faq .faq-list details p { padding:0 0 16px; font-size:12px; line-height:1.8; color:var(--muted-foreground); white-space:pre-line; }
+.dynamic-detail .dynamic-plan-options { display:grid; gap:10px; grid-template-columns:1fr; }
+.dynamic-plan-option { display:grid !important; grid-template-columns:minmax(0,1fr) auto !important; align-items:center !important; column-gap:16px; row-gap:6px; padding:17px 18px !important; }
+.dynamic-plan-option .dynamic-plan-head { grid-column:1; display:flex; align-items:center; gap:9px; min-width:0; }
+.dynamic-plan-option .dynamic-plan-name { font-size:16px; font-weight:550; }
+.dynamic-plan-option .dynamic-plan-desc { grid-column:1; margin-left:25px; font-size:11px; color:var(--muted-foreground); }
+.dynamic-plan-option .dynamic-plan-price { grid-column:2; grid-row:1 / span 2; display:flex; align-items:baseline; gap:3px; font-size:26px; font-weight:550; letter-spacing:-.6px; font-variant-numeric:tabular-nums; }
+.dynamic-plan-option .dynamic-plan-price small { font-size:11px; font-weight:400; letter-spacing:0; color:var(--muted-foreground); }
+.dynamic-plan-option input[type=radio] { accent-color:var(--primary); width:16px; height:16px; flex-shrink:0; }
+.dynamic-plan-off { margin-left:auto; font-size:10px; color:var(--muted-foreground); }
+.dynamic-plan-price { font-variant-numeric:tabular-nums; }
+@media(max-width:760px) {
+  .dynamic-plan-option { padding:15px 12px !important; column-gap:10px; }
+  .dynamic-plan-option .dynamic-plan-price { font-size:24px; }
+}
